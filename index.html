@@ -22,6 +22,7 @@
         }
         .card.gateway-found { border-left-color: #28a745; }
         .card.gateway-not-found { border-left-color: #dc3545; }
+        .card.error { border-left-color: #ffc107; background-color: #fffdf2; }
 
         h2 { 
             color: #6c757d; 
@@ -39,6 +40,7 @@
         }
         .loading { color: #adb5bd; font-style: italic; font-weight: normal; }
         .highlight { color: #28a745; }
+        .error-text { color: #dc3545; font-size: 0.9em; font-weight: normal; margin-top: 5px; display: block;}
     </style>
 </head>
 <body>
@@ -99,48 +101,89 @@
             return null;
         }
 
-        document.addEventListener("DOMContentLoaded", () => {
+        // Função com dupla verificação para fugir de bloqueios
+        async function fetchNetworkData() {
+            // Tentativa 1: GeoJS (Muito confiável, raramente bloqueado por AdBlockers)
+            try {
+                const response = await fetch('https://get.geojs.io/v1/ip/geo.json');
+                if (!response.ok) throw new Error("GeoJS falhou");
+                const data = await response.json();
+                return {
+                    ip: data.ip,
+                    isp: data.organization_name || data.organization || "Não identificada",
+                    location: `${data.city || "Cidade oculta"}, ${data.region || "???"} - ${data.country || "???"}`
+                };
+            } catch (e) {
+                console.warn("Tentativa 1 falhou, ativando plano B...", e);
+            }
+
+            // Tentativa 2: Ipapi (Fallback)
+            try {
+                const response = await fetch('https://ipapi.co/json/');
+                if (!response.ok) throw new Error("Ipapi falhou");
+                const data = await response.json();
+                return {
+                    ip: data.ip,
+                    isp: data.org || "Não identificada",
+                    location: `${data.city || "Cidade oculta"}, ${data.region || "???"} - ${data.country_name || "???"}`
+                };
+            } catch (e) {
+                throw new Error("Todas as conexões externas foram bloqueadas pelo navegador.");
+            }
+        }
+
+        document.addEventListener("DOMContentLoaded", async () => {
+            // Exibir User Agent instantaneamente
             document.getElementById("userAgent").textContent = navigator.userAgent;
 
-            // Chamada para a API que traz localização e operadora
-            fetch('https://ipwho.is/')
-                .then(response => response.json())
-                .then(data => {
-                    const userIp = data.ip;
-                    
-                    // 1. IP
-                    document.getElementById("ipAddress").textContent = userIp;
-                    document.getElementById("ipAddress").classList.remove("loading");
+            try {
+                // Inicia as chamadas de rede
+                const data = await fetchNetworkData();
+                
+                // 1. Mostrar IP
+                const ipEl = document.getElementById("ipAddress");
+                ipEl.textContent = data.ip;
+                ipEl.classList.remove("loading");
 
-                    // 2. Gateway (Sua regra personalizada)
-                    const gatewayName = getGateway(userIp);
-                    const gatewayEl = document.getElementById("gateway");
-                    const gatewayCard = document.getElementById("gatewayCard");
-                    
-                    if (gatewayName) {
-                        gatewayEl.textContent = gatewayName;
-                        gatewayEl.classList.add("highlight");
-                        gatewayCard.classList.add("gateway-found");
-                    } else {
-                        gatewayEl.textContent = "IP fora das faixas SNE/SPO";
-                        gatewayCard.classList.add("gateway-not-found");
-                    }
-                    gatewayEl.classList.remove("loading");
+                // 2. Mostrar e Validar Gateway
+                const gatewayName = getGateway(data.ip);
+                const gatewayEl = document.getElementById("gateway");
+                const gatewayCard = document.getElementById("gatewayCard");
+                
+                if (gatewayName) {
+                    gatewayEl.textContent = gatewayName;
+                    gatewayEl.classList.add("highlight");
+                    gatewayCard.classList.add("gateway-found");
+                } else {
+                    gatewayEl.textContent = "IP fora das faixas SNE/SPO";
+                    gatewayCard.classList.add("gateway-not-found");
+                }
+                gatewayEl.classList.remove("loading");
 
-                    // 3. Operadora (ISP)
-                    const ispEl = document.getElementById("isp");
-                    ispEl.textContent = data.connection.isp || "Não identificada";
-                    ispEl.classList.remove("loading");
+                // 3. Mostrar Operadora (ISP)
+                const ispEl = document.getElementById("isp");
+                ispEl.textContent = data.isp;
+                ispEl.classList.remove("loading");
 
-                    // 4. Localização (Cidade, Estado, País)
-                    const locEl = document.getElementById("location");
-                    locEl.textContent = `${data.city}, ${data.region_code} - ${data.country}`;
-                    locEl.classList.remove("loading");
-                })
-                .catch(error => {
-                    console.error("Erro:", error);
-                    alert("Erro ao carregar dados de rede.");
+                // 4. Mostrar Localização
+                const locEl = document.getElementById("location");
+                locEl.textContent = data.location;
+                locEl.classList.remove("loading");
+
+            } catch (error) {
+                // Se tudo falhar, avisa o usuário elegantemente
+                console.error("Erro final de execução:", error);
+                
+                const elements = ["ipAddress", "gateway", "isp", "location"];
+                elements.forEach(id => {
+                    document.getElementById(id).textContent = "Bloqueado pelo dispositivo";
+                    document.getElementById(id).classList.remove("loading");
+                    document.getElementById(id).classList.add("error-text");
                 });
+                
+                document.getElementById("gatewayCard").className = "card error";
+                document.getElementById("gateway").innerHTML = "Erro ao conectar.<br><small style='color:#666;'>Dica: Se estiver usando extensões como uBlock, AdGuard ou o navegador Brave, pause a proteção para este site.</small>";
+            }
         });
     </script>
 </body>
