@@ -46,7 +46,7 @@
 <body>
 
     <div class="card">
-        <h2>Endereço IPv4</h2>
+        <h2>Endereço IP (Público)</h2>
         <p id="ipAddress" class="loading">Buscando...</p>
     </div>
 
@@ -71,39 +71,87 @@
     </div>
 
     <script>
-        // Suas faixas de IP originais
+        // Tabela unificada contendo faixas IPv4 e IPv6
         const gateways = {
             "Santo Andre (SNE)": [
+                // IPv4
                 "170.244.198.0/24", "170.244.199.0/24", "191.128.232.0/24",
-                "191.128.233.0/24", "191.128.234.0/23", "191.128.236.0/24", "191.128.237.0/24"
+                "191.128.233.0/24", "191.128.234.0/23", "191.128.236.0/24", "191.128.237.0/24",
+                // IPv6
+                "2804:38c4::/48", "2804:38c4:2::/48", "2804:38c4:3::/48", "2804:38c4:4::/48",
+                "2804:38c4:5::/48", "2804:38c4:6::/48", "2804:38c4:7::/48", "2804:38c4:8::/48",
+                "2804:38c4:9::/48", "2804:38c4:10::/48", "2804:38c4:11::/48", "2804:38c4:12::/48",
+                "2804:38c4:13::/48", "2804:38c4:14::/48", "2804:38c4:15::/48", "2804:38c4:16::/48",
+                "2804:38c4:17::/48", "2804:38c4:18::/48", "2804:38c4:19::/48", "2804:38c4:20::/48"
             ],
             "Vila Anastacio (SPO)": [
-                "189.76.168.0/22", "189.76.170.0/24", "189.76.172.0/23", "189.76.174.0/24"
+                // IPv4
+                "189.76.168.0/22", "189.76.170.0/24", "189.76.172.0/23", "189.76.174.0/24",
+                // IPv6
+                "2804:748::/48", "2804:748:1::/48", "2804:748:2::/48", "2804:748:3::/48",
+                "2804:748:4::/48", "2804:748:5::/48", "2804:748:6::/48", "2804:748:7::/48",
+                "2804:748:8::/48", "2804:748:9::/48"
             ]
         };
 
-        function ipToNumeric(ip) {
+        // --- Lógica IPv4 ---
+        function ip4ToNumeric(ip) {
             return ip.split('.').reduce((acc, octet) => (acc << 8) + parseInt(octet, 10), 0) >>> 0;
         }
-
-        function isIpInCidr(ip, cidr) {
+        function isIp4InCidr(ip, cidr) {
             const [range, bits] = cidr.split('/');
             const mask = (-1 << (32 - parseInt(bits, 10))) >>> 0;
-            return (ipToNumeric(ip) & mask) === (ipToNumeric(range) & mask);
+            return (ip4ToNumeric(ip) & mask) === (ip4ToNumeric(range) & mask);
         }
 
+        // --- Lógica IPv6 (Usando BigInt para suportar 128 bits) ---
+        function ipv6ToBigInt(ip) {
+            let [left, right] = ip.split('::');
+            let leftParts = left ? left.split(':') : [];
+            let rightParts = right ? right.split(':') : [];
+            
+            // IPv6 é composto por 8 blocos. Preenchemos os faltantes no lugar do "::"
+            let missing = 8 - (leftParts.length + rightParts.length);
+            let middle = Array(missing).fill('0');
+            
+            let allParts = [...leftParts, ...middle, ...rightParts];
+            let bigInt = 0n;
+            
+            for (let part of allParts) {
+                bigInt = (bigInt << 16n) + BigInt(parseInt(part || '0', 16));
+            }
+            return bigInt;
+        }
+        function isIp6InCidr(ip, cidr) {
+            const [range, bitsStr] = cidr.split('/');
+            const bits = BigInt(bitsStr);
+            const mask = ((1n << 128n) - 1n) ^ ((1n << (128n - bits)) - 1n);
+            return (ipv6ToBigInt(ip) & mask) === (ipv6ToBigInt(range) & mask);
+        }
+
+        // --- Identificação do Gateway Central ---
         function getGateway(ip) {
+            const isV6 = ip.includes(':');
+
             for (const [gatewayName, cidrList] of Object.entries(gateways)) {
                 for (const cidr of cidrList) {
-                    if (isIpInCidr(ip, cidr)) return gatewayName;
+                    const isCidrV6 = cidr.includes(':');
+                    
+                    // Evita comparar um IP de um tipo com uma máscara de outro
+                    if (isV6 !== isCidrV6) continue;
+
+                    if (isV6) {
+                        if (isIp6InCidr(ip, cidr)) return gatewayName;
+                    } else {
+                        if (isIp4InCidr(ip, cidr)) return gatewayName;
+                    }
                 }
             }
             return null;
         }
 
-        // Função com dupla verificação para fugir de bloqueios
+        // --- Chamadas de API ---
         async function fetchNetworkData() {
-            // Tentativa 1: GeoJS (Muito confiável, raramente bloqueado por AdBlockers)
             try {
                 const response = await fetch('https://get.geojs.io/v1/ip/geo.json');
                 if (!response.ok) throw new Error("GeoJS falhou");
@@ -117,7 +165,6 @@
                 console.warn("Tentativa 1 falhou, ativando plano B...", e);
             }
 
-            // Tentativa 2: Ipapi (Fallback)
             try {
                 const response = await fetch('https://ipapi.co/json/');
                 if (!response.ok) throw new Error("Ipapi falhou");
@@ -133,19 +180,17 @@
         }
 
         document.addEventListener("DOMContentLoaded", async () => {
-            // Exibir User Agent instantaneamente
             document.getElementById("userAgent").textContent = navigator.userAgent;
 
             try {
-                // Inicia as chamadas de rede
                 const data = await fetchNetworkData();
                 
-                // 1. Mostrar IP
+                // IP
                 const ipEl = document.getElementById("ipAddress");
                 ipEl.textContent = data.ip;
                 ipEl.classList.remove("loading");
 
-                // 2. Mostrar e Validar Gateway
+                // Gateway
                 const gatewayName = getGateway(data.ip);
                 const gatewayEl = document.getElementById("gateway");
                 const gatewayCard = document.getElementById("gatewayCard");
@@ -155,25 +200,22 @@
                     gatewayEl.classList.add("highlight");
                     gatewayCard.classList.add("gateway-found");
                 } else {
-                    gatewayEl.textContent = "IP fora das faixas SNE/SPO";
+                    gatewayEl.textContent = "IP fora das faixas SNE/SPO monitoradas";
                     gatewayCard.classList.add("gateway-not-found");
                 }
                 gatewayEl.classList.remove("loading");
 
-                // 3. Mostrar Operadora (ISP)
+                // Operadora
                 const ispEl = document.getElementById("isp");
                 ispEl.textContent = data.isp;
                 ispEl.classList.remove("loading");
 
-                // 4. Mostrar Localização
+                // Localização
                 const locEl = document.getElementById("location");
                 locEl.textContent = data.location;
                 locEl.classList.remove("loading");
 
             } catch (error) {
-                // Se tudo falhar, avisa o usuário elegantemente
-                console.error("Erro final de execução:", error);
-                
                 const elements = ["ipAddress", "gateway", "isp", "location"];
                 elements.forEach(id => {
                     document.getElementById(id).textContent = "Bloqueado pelo dispositivo";
@@ -182,7 +224,7 @@
                 });
                 
                 document.getElementById("gatewayCard").className = "card error";
-                document.getElementById("gateway").innerHTML = "Erro ao conectar.<br><small style='color:#666;'>Dica: Se estiver usando extensões como uBlock, AdGuard ou o navegador Brave, pause a proteção para este site.</small>";
+                document.getElementById("gateway").innerHTML = "Erro ao conectar.<br><small style='color:#666;'>Dica: Verifique seus bloqueadores de anúncio ou proteções do navegador.</small>";
             }
         });
     </script>
