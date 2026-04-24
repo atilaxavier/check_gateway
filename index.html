@@ -3,60 +3,73 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Identificador de Acesso Mobile</title>
+    <title>Identificador de Rede e Localização</title>
     <style>
         body { 
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; 
             padding: 20px; 
             max-width: 600px; 
             margin: 0 auto; 
-            background-color: #e9ecef;
+            background-color: #f0f2f5;
         }
         .card { 
             background: #ffffff; 
-            padding: 20px; 
-            border-radius: 10px; 
-            margin-bottom: 20px; 
-            box-shadow: 0 4px 6px rgba(0,0,0,0.1); 
+            padding: 15px 20px; 
+            border-radius: 12px; 
+            margin-bottom: 15px; 
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05); 
+            border-left: 5px solid #007bff;
         }
+        .card.gateway-found { border-left-color: #28a745; }
+        .card.gateway-not-found { border-left-color: #dc3545; }
+
         h2 { 
-            color: #495057; 
-            font-size: 1em; 
+            color: #6c757d; 
+            font-size: 0.85em; 
             text-transform: uppercase;
             letter-spacing: 1px;
-            margin-bottom: 8px; 
-            margin-top: 0;
+            margin: 0 0 8px 0;
         }
         p { 
             word-wrap: break-word; 
             color: #212529; 
-            font-size: 1.2em; 
-            font-weight: 500;
+            font-size: 1.1em; 
+            font-weight: 600;
             margin: 0;
         }
-        .loading { color: #adb5bd; font-style: italic; }
-        .highlight { color: #007bff; font-weight: bold; }
+        .loading { color: #adb5bd; font-style: italic; font-weight: normal; }
+        .highlight { color: #28a745; }
     </style>
 </head>
 <body>
 
     <div class="card">
-        <h2>User Agent (Navegador/Dispositivo)</h2>
-        <p id="userAgent" class="loading">Carregando...</p>
+        <h2>Endereço IPv4</h2>
+        <p id="ipAddress" class="loading">Buscando...</p>
+    </div>
+
+    <div class="card" id="gatewayCard">
+        <h2>Gateway de Origem (Tabela Interna)</h2>
+        <p id="gateway" class="loading">Verificando...</p>
     </div>
 
     <div class="card">
-        <h2>Endereço IPv4 Público</h2>
-        <p id="ipAddress" class="loading">Buscando IP...</p>
+        <h2>Operadora / ISP</h2>
+        <p id="isp" class="loading">Identificando...</p>
     </div>
 
     <div class="card">
-        <h2>Gateway Identificado</h2>
-        <p id="gateway" class="loading">Aguardando IP...</p>
+        <h2>Localização do Acesso</h2>
+        <p id="location" class="loading">Localizando...</p>
+    </div>
+
+    <div class="card">
+        <h2>User Agent (Dispositivo)</h2>
+        <p id="userAgent" style="font-size: 0.9em; font-weight: normal; color: #495057;"></p>
     </div>
 
     <script>
-        // Definição das faixas de IP repassadas por você
+        // Suas faixas de IP originais
         const gateways = {
             "Santo Andre (SNE)": [
                 "170.244.198.0/24", "170.244.199.0/24", "191.128.232.0/24",
@@ -67,63 +80,66 @@
             ]
         };
 
-        // Converte o IP em formato de string para um número inteiro não assinado de 32 bits
         function ipToNumeric(ip) {
             return ip.split('.').reduce((acc, octet) => (acc << 8) + parseInt(octet, 10), 0) >>> 0;
         }
 
-        // Verifica se um IP pertence a uma notação CIDR específica (ex: 170.244.198.0/24)
         function isIpInCidr(ip, cidr) {
             const [range, bits] = cidr.split('/');
-            // Cria a máscara de sub-rede
             const mask = (-1 << (32 - parseInt(bits, 10))) >>> 0;
-            // Compara os IPs mascarados
             return (ipToNumeric(ip) & mask) === (ipToNumeric(range) & mask);
         }
 
-        // Procura o gateway correspondente ao IP informado
         function getGateway(ip) {
             for (const [gatewayName, cidrList] of Object.entries(gateways)) {
                 for (const cidr of cidrList) {
-                    if (isIpInCidr(ip, cidr)) {
-                        return gatewayName;
-                    }
+                    if (isIpInCidr(ip, cidr)) return gatewayName;
                 }
             }
-            return "Desconhecido (Não pertence às faixas monitoradas)";
+            return null;
         }
 
         document.addEventListener("DOMContentLoaded", () => {
-            // 1. Mostrar User Agent diretamente pelo navegador do dispositivo
-            const uaElement = document.getElementById("userAgent");
-            uaElement.textContent = navigator.userAgent;
-            uaElement.classList.remove("loading");
+            document.getElementById("userAgent").textContent = navigator.userAgent;
 
-            // 2. Buscar IP usando a API pública Ipify (já que o Github Pages é apenas frontend)
-            fetch('https://api.ipify.org?format=json')
+            // Chamada para a API que traz localização e operadora
+            fetch('https://ipwho.is/')
                 .then(response => response.json())
                 .then(data => {
                     const userIp = data.ip;
                     
-                    // Mostra o IP
-                    const ipElement = document.getElementById("ipAddress");
-                    ipElement.textContent = userIp;
-                    ipElement.classList.remove("loading");
+                    // 1. IP
+                    document.getElementById("ipAddress").textContent = userIp;
+                    document.getElementById("ipAddress").classList.remove("loading");
 
-                    // Calcula e mostra o Gateway
-                    const gatewayElement = document.getElementById("gateway");
+                    // 2. Gateway (Sua regra personalizada)
                     const gatewayName = getGateway(userIp);
+                    const gatewayEl = document.getElementById("gateway");
+                    const gatewayCard = document.getElementById("gatewayCard");
                     
-                    gatewayElement.textContent = gatewayName;
-                    gatewayElement.classList.remove("loading");
-                    if (gatewayName.includes("SNE") || gatewayName.includes("SPO")) {
-                        gatewayElement.classList.add("highlight");
+                    if (gatewayName) {
+                        gatewayEl.textContent = gatewayName;
+                        gatewayEl.classList.add("highlight");
+                        gatewayCard.classList.add("gateway-found");
+                    } else {
+                        gatewayEl.textContent = "IP fora das faixas SNE/SPO";
+                        gatewayCard.classList.add("gateway-not-found");
                     }
+                    gatewayEl.classList.remove("loading");
+
+                    // 3. Operadora (ISP)
+                    const ispEl = document.getElementById("isp");
+                    ispEl.textContent = data.connection.isp || "Não identificada";
+                    ispEl.classList.remove("loading");
+
+                    // 4. Localização (Cidade, Estado, País)
+                    const locEl = document.getElementById("location");
+                    locEl.textContent = `${data.city}, ${data.region_code} - ${data.country}`;
+                    locEl.classList.remove("loading");
                 })
                 .catch(error => {
-                    console.error("Erro ao buscar o IP:", error);
-                    document.getElementById("ipAddress").textContent = "Erro na rede. Verifique a conexão.";
-                    document.getElementById("gateway").textContent = "Indisponível";
+                    console.error("Erro:", error);
+                    alert("Erro ao carregar dados de rede.");
                 });
         });
     </script>
