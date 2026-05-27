@@ -23,6 +23,7 @@
         .card.gateway-found { border-left-color: #28a745; }
         .card.gateway-not-found { border-left-color: #dc3545; }
         .card.error { border-left-color: #ffc107; background-color: #fffdf2; }
+        .card.not-detected { border-left-color: #6c757d; background-color: #f8f9fa; }
 
         h2 { 
             color: #6c757d; 
@@ -69,6 +70,7 @@
         .highlight { color: #28a745; }
         .error-text { color: #dc3545; font-size: 0.9em; font-weight: normal; margin-top: 5px; display: block;}
         .not-available { color: #adb5bd; font-style: italic; font-weight: normal; }
+        .not-detected-text { color: #6c757d; font-style: italic; font-weight: normal; }
         .info-row {
             margin-bottom: 10px;
         }
@@ -80,7 +82,7 @@
 <body>
     <h1 style="color: #212529; text-align: center; margin-bottom: 30px;">Verificador de Rede e Gateway</h1>
 
-    <div class="card" id="ipv4Card" style="display: none;">
+    <div class="card" id="ipv4Card">
         <h2>
             <span class="ip-version-label ipv4-label">IPv4</span>
             Endereço IP (Público)
@@ -99,7 +101,7 @@
         </div>
     </div>
 
-    <div class="card" id="ipv6Card" style="display: none;">
+    <div class="card" id="ipv6Card">
         <h2>
             <span class="ip-version-label ipv6-label">IPv6</span>
             Endereço IP (Público)
@@ -329,11 +331,30 @@
             const card = document.getElementById(cardId);
             
             if (!data) {
-                card.style.display = 'none';
+                // IP não detectado
+                card.className = "card not-detected";
+                
+                const ipEl = document.getElementById(`${prefix}Address`);
+                ipEl.textContent = `${version === 4 ? 'IPv4' : 'IPv6'} não foi detectado`;
+                ipEl.classList.remove("loading");
+                ipEl.classList.add("not-detected-text");
+
+                const gatewayEl = document.getElementById(`${prefix}Gateway`);
+                gatewayEl.textContent = "-";
+                gatewayEl.classList.remove("loading");
+
+                const ispEl = document.getElementById(`${prefix}Isp`);
+                ispEl.textContent = "-";
+                ispEl.classList.remove("loading");
+
+                const locEl = document.getElementById(`${prefix}Location`);
+                locEl.textContent = "-";
+                locEl.classList.remove("loading");
+                
                 return;
             }
 
-            card.style.display = 'block';
+            // IP detectado
             
             // IP
             const ipEl = document.getElementById(`${prefix}Address`);
@@ -387,6 +408,8 @@
                         isp: geoData.isp,
                         location: geoData.location
                     }, ipv4Gateway);
+                } else {
+                    updateIPCard(4, null, null);
                 }
 
                 // Processa IPv6
@@ -398,6 +421,8 @@
                         isp: geoData.isp,
                         location: geoData.location
                     }, ipv6Gateway);
+                } else {
+                    updateIPCard(6, null, null);
                 }
 
             } catch (error) {
@@ -407,7 +432,6 @@
                 const cards = document.querySelectorAll('[id$="Card"]');
                 cards.forEach(card => {
                     if (!card.id.includes("Card")) return;
-                    card.style.display = 'block';
                     card.className = "card error";
                 });
                 
